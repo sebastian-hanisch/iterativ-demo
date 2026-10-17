@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import math
+
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
@@ -13,6 +15,23 @@ ERR_TICKS = dict(tickvals=[0.05, 0.1, 0.2, 0.5, 1, 2, 5, 20], ticktext=["5 %", "
 RULES = ("dp", "gcv", "lcurve", "oracle")
 RULE_SHORT = {"dp": "Diskrepanzprinzip", "gcv": "GCV", "lcurve": "L-Kurve", "oracle": "Orakel"}
 RULE_COLORS = {"dp": "#4c78a8", "gcv": "#D68A2E", "lcurve": "#8e44ad", "oracle": "#8a8a8a"}
+
+
+def _ref_line(fig, value, text, position, axis, log=True, **line_kwargs):
+    """Referenzlinie mit Beschriftung auf einer logarithmischen Achse: die Linie liegt auf dem Datenwert, die Beschriftung braucht log10 des Werts
+    (add_hline und add_vline setzen beide auf denselben Wert, die Beschriftung sitzt dann falsch und dehnt die Achse); log=False für lineare Achsen."""
+    if log and not value > 0.0:
+        return
+    pos = math.log10(value) if log else value
+    top, left = "top" in position, "left" in position
+    if axis == "y":
+        fig.add_hline(y=value, **line_kwargs)
+        if text:
+            fig.add_annotation(xref="paper", yref="y", x=0 if left else 1, y=pos, text=text, showarrow=False, xanchor="left" if left else "right", yanchor="bottom" if top else "top")
+    else:
+        fig.add_vline(x=value, **line_kwargs)
+        if text:
+            fig.add_annotation(xref="x", yref="paper", x=pos, y=1 if top else 0, text=text, showarrow=False, xanchor="right" if left else "left", yanchor="top" if top else "bottom")
 
 
 def _fixed(fig: go.Figure, height: int = 380, **layout) -> go.Figure:
@@ -64,7 +83,7 @@ def build_semiconv_chart(a: Analysis) -> go.Figure:
     """Fehler dieser Stichprobe über den CGLS-Index: exakte Iteration gegen die übliche Rekurrenz in doppelter Genauigkeit."""
     ks = np.arange(C.KMAX + 1)
     fig = go.Figure()
-    fig.add_hline(y=a.err_tik, line=dict(color=C.COLOR_TIK, dash="dot"), annotation_text="Tikhonov, bestes λ (erwartet)", annotation_position="top left")
+    _ref_line(fig, a.err_tik, "Tikhonov, bestes λ (erwartet)", "top left", "y", line=dict(color=C.COLOR_TIK, dash="dot"))
     fig.add_trace(go.Scatter(x=ks, y=a.curve_exact, mode="lines+markers", name="CGLS exakt", line=dict(color=C.COLOR_CGLS, width=3), marker=dict(size=4)))
     fig.add_trace(go.Scatter(x=ks, y=a.curve_plain, mode="lines", name="CGLS übliche Rekurrenz", line=dict(color=C.COLOR_PLAIN, width=2, dash="dash")))
     if a.settings.method != "landweber":
@@ -82,7 +101,7 @@ def build_landweber_chart(a: Analysis) -> go.Figure:
     """Erwarteter Fehler von Landweber über die Schrittzahl (logarithmische Achse) im Vergleich zu CGLS und Tikhonov."""
     fig = go.Figure()
     fig.add_trace(go.Scatter(x=a.lw_steps, y=a.lw_curve, mode="lines", name="Landweber, erwarteter Fehler", line=dict(color=C.COLOR_LW, width=3)))
-    fig.add_hline(y=a.err_tik, line=dict(color=C.COLOR_TIK, dash="dot"), annotation_text="Tikhonov, bestes λ", annotation_position="top left")
+    _ref_line(fig, a.err_tik, "Tikhonov, bestes λ", "top left", "y", line=dict(color=C.COLOR_TIK, dash="dot"))
     if a.settings.method == "landweber" and a.steps > 0:
         i = int(np.argmin(np.abs(np.log10(a.lw_steps) - np.log10(a.steps))))
         fig.add_trace(go.Scatter(x=[a.lw_steps[i]], y=[a.lw_curve[i]], mode="markers", name=f"gewählt: {int_text(a.steps)} Schritte",
@@ -95,8 +114,8 @@ def build_landweber_chart(a: Analysis) -> go.Figure:
 def build_halfconv_chart(res: dict) -> go.Figure:
     ks = res["k"][1:]
     fig = go.Figure()
-    fig.add_hline(y=res["tik_err"], line=dict(color=C.COLOR_TIK, dash="dot"), annotation_text="Tikhonov, bestes λ", annotation_position="top left")
-    fig.add_hline(y=res["lw_err"], line=dict(color=C.COLOR_LW, dash="dash"), annotation_text="Landweber, bester Abbruch", annotation_position="bottom right")
+    _ref_line(fig, res["tik_err"], "Tikhonov, bestes λ", "top left", "y", line=dict(color=C.COLOR_TIK, dash="dot"))
+    _ref_line(fig, res["lw_err"], "Landweber, bester Abbruch", "bottom right", "y", line=dict(color=C.COLOR_LW, dash="dash"))
     fig.add_trace(go.Scatter(x=ks, y=res["rms"][1:], mode="lines+markers", name="CGLS, RMS-Fehler", line=dict(color=C.COLOR_CGLS, width=3), marker=dict(size=4)))
     fig.add_trace(go.Scatter(x=ks, y=res["median"][1:], mode="lines", name="CGLS, Median", line=dict(color=C.COLOR_CGLS, width=1.5, dash="dot")))
     fig.update_xaxes(title="Iteration k")
